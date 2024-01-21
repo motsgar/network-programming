@@ -21,12 +21,22 @@ int main(int argc, char* argv[])
     char line[1000];
     while (fgets(line, sizeof(line), file) != NULL)
     {
-        fputs(line, stdout);
-        fputs(line, stdout);
+        if (fputs(line, stdout) == EOF)
+        {
+            perror("Failed to write to stdout");
+            return 1;
+        }
+        if (fputs(line, stdout) == EOF)
+        {
+            perror("Failed to write to stdout");
+            return 1;
+        }
     }
     if (ferror(file))
     {
         perror("Failed to read file");
         return 1;
     }
+
+    fclose(file);
 }
