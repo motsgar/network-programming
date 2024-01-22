@@ -5,6 +5,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+// Returns the time since the last call to this function in microseconds.
+// Implemented using gettimeofday and saving the previous time in a static variable.
 int64_t getTimeSinceLastCall()
 {
     static int64_t previous = 0;
@@ -17,6 +19,7 @@ int64_t getTimeSinceLastCall()
         exit(1);
     }
 
+    // Calculate the time since the last call to this function in microseconds and save the current time.
     int64_t now = tv.tv_sec * 1000000 + tv.tv_usec;
     int64_t timeTaken = now - previous;
     previous = now;
@@ -28,11 +31,13 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[],
 {
     getTimeSinceLastCall();
 
+    // Get PIDs.
     pid_t pid = getpid();
     pid_t ppid = getppid();
 
     int64_t pidTakeTime = getTimeSinceLastCall();
 
+    // Print PIDs and time taken to get them.
     printf("PID: %d\n", pid);
     printf("PPID: %d\n", ppid);
     printf("Time to get PID and PPID: %ldus\n", pidTakeTime);
@@ -41,6 +46,7 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[],
 
     getTimeSinceLastCall();
 
+    // Loop through the environment variables by printing each one until the next one is NULL.
     size_t envPointer = 0;
     while (environ[envPointer] != NULL)
     {
@@ -50,6 +56,7 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[],
 
     int64_t environmentPrintTime = getTimeSinceLastCall();
 
+    // Print time taken to print environment variables.
     printf(
         "\nTime to print environment variables: %ldus\n", environmentPrintTime
     );
