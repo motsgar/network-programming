@@ -1,5 +1,3 @@
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -69,7 +67,7 @@ int reader(int input, int output)
 
 void lineDoubler(int input, int output)
 {
-    // Keep reading max 1000 characters to "data" until EOF is reached.
+    // Keep reading max 100 characters to "data" until EOF is reached.
     // Data is read to "data + readBufferOffset" to allow contiunation of reading a line
     // if the previous read ended without a newline.
     char data[100];
@@ -180,7 +178,11 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
     else if (forkResult == 0)
     {
         // Close the write end of the pipe as doubler will read from the pipe and write to stdout.
-        close(pipefd[1]);
+        if (close(pipefd[1]) < 0)
+        {
+            perror("Failed to close write end of pipe");
+            return 1;
+        }
 
         lineDoubler(pipefd[0], STDOUT_FILENO);
         fprintf(stderr, "Line doubler received EOF from pipe\n");
@@ -189,13 +191,21 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
     }
 
     // Close the read end of the pipe as reader will read stdin and write to the pipe.
-    close(pipefd[0]);
+    if (close(pipefd[0]) < 0)
+    {
+        perror("Failed to close read end of pipe");
+        return 1;
+    }
 
     if (reader(STDIN_FILENO, pipefd[1]) == 0)
         fprintf(stderr, "Reader received EOF from stdin\n");
 
     // Close the write end of the pipe to signal EOF to the doubler.
-    close(pipefd[1]);
+    if (close(pipefd[1]) < 0)
+    {
+        perror("Failed to close write end of pipe");
+        return 1;
+    }
 
     // I also decided to add a wait here to make sure the child process exits before the parent process
     // so that the terminal doesn't show the prompt before the child process exits.
