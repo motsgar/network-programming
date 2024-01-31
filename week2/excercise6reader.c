@@ -8,6 +8,14 @@
 #define FIFO_TO_CONVERTER "/tmp/npfifo.1"
 #define FIFO_FROM_CONVERTER "/tmp/npfifo.2"
 
+// I optionally added a signal handler for SIGPIPE.
+void sigpileHandler(__attribute__((unused)) int signum)
+{
+    char* message = "Recieved SIGPIPE from converter indicating that it can't recieve data anymore.\n";
+    write(STDERR_FILENO, message, strlen(message));
+    exit(0);
+}
+
 // Writes "length" bytes from "data" to "file" and returns the number of bytes written or -1 if an error occurred.
 // Implemented because write does not guarantee to write all bytes if the output file is eg. full or a signal causes the write to be interrupted.
 ssize_t loopedWrite(int file, void* data, size_t length)
@@ -25,6 +33,23 @@ ssize_t loopedWrite(int file, void* data, size_t length)
 
 int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
 {
+    // Register additional signal handler.
+    struct sigaction action;
+    if (sigemptyset(&action.sa_mask) < 0)
+    {
+        perror("Failed to set signal mask");
+        return 1;
+    }
+    action.sa_handler = sigpileHandler;
+    action.sa_flags = 0;
+
+    // Apply the action to SIGPIPE. If it fails, print an error and exit.
+    if (sigaction(SIGPIPE, &action, NULL) < 0)
+    {
+        perror("Failed to set SIGPIPE handler");
+        return 1;
+    }
+
     int receivefd, sendfd;
 
     // Open the FIFOs for sending and recieving.
