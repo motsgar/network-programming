@@ -7,6 +7,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -36,6 +37,28 @@ void createSignalHandler()
         perror("Failed to set SIGPIPE handler");
         exit(1);
     }
+}
+
+// Returns the time since the last call to this function in microseconds.
+// Implemented using gettimeofday and saving the previous time in a static variable.
+int64_t getTimeSinceLastCall()
+{
+    static int64_t previous = 0;
+
+    struct timeval tv;
+
+    if (gettimeofday(&tv, NULL) < 0)
+    {
+        perror("Failed to get time of day");
+        exit(1);
+    }
+
+    // Calculate the time since the last call to this function in microseconds and save the current time.
+    int64_t now = tv.tv_sec * 1000000 + tv.tv_usec;
+    int64_t timeTaken = now - previous;
+    previous = now;
+
+    return timeTaken;
 }
 
 // Inclusively returns the number of characters until the next newline character.
@@ -154,6 +177,7 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
     }
 
     printf("Connected to server, starting to send data\n");
+    getTimeSinceLastCall();
     dataGenerator(socketfd, totalSendAmount, chunkSize);
     printf("Data sent to server, Sending fin packet and waiting for server to close the connection\n");
 
@@ -166,6 +190,7 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
     {
         // Do nothing with the data.
     }
+    int64_t timeTakenForTransfer = getTimeSinceLastCall();
     if (bytesRead < 0)
     {
         perror("Failed to wait for server to close connection");
@@ -179,6 +204,10 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
         perror("Failed to close socket");
         return 1;
     }
+
+    // Print time taken for transfer and transfer speed
+    printf("Time taken for transfer: %ldus\n", timeTakenForTransfer);
+    printf("Transfer speed: %.2fMB/s\n", (float)totalSendAmount / ((float)timeTakenForTransfer));
 
     return 0;
 }

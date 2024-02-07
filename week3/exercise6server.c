@@ -7,6 +7,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -39,6 +40,28 @@ void createSignalHandler()
     }
 }
 
+// Returns the time since the last call to this function in microseconds.
+// Implemented using gettimeofday and saving the previous time in a static variable.
+int64_t getTimeSinceLastCall()
+{
+    static int64_t previous = 0;
+
+    struct timeval tv;
+
+    if (gettimeofday(&tv, NULL) < 0)
+    {
+        perror("Failed to get time of day");
+        exit(1);
+    }
+
+    // Calculate the time since the last call to this function in microseconds and save the current time.
+    int64_t now = tv.tv_sec * 1000000 + tv.tv_usec;
+    int64_t timeTaken = now - previous;
+    previous = now;
+
+    return timeTaken;
+}
+
 void dataEater(int input, int readAmount)
 {
     char* buffer = malloc(readAmount);
@@ -49,10 +72,19 @@ void dataEater(int input, int readAmount)
     }
 
     ssize_t bytesRead;
+    size_t bytesReadTotal = 0;
+    int firstRead = 1;
     while ((bytesRead = read(input, buffer, readAmount)) > 0)
     {
+        bytesReadTotal += bytesRead;
+        if (firstRead)
+        {
+            getTimeSinceLastCall();
+            firstRead = 0;
+        }
         // Do nothing with the data.
     }
+    int64_t timeToReadData = getTimeSinceLastCall();
     if (bytesRead < 0)
     {
         perror("Failed to read from input");
@@ -60,6 +92,16 @@ void dataEater(int input, int readAmount)
         exit(1);
     }
     free(buffer);
+
+    if (firstRead)
+    {
+        fprintf(stderr, "Warning: Client exited before sending any data\n");
+        return;
+    }
+
+    // Print the time taken to eat the data and speed
+    fprintf(stderr, "Time to read data: %ldus\n", timeToReadData);
+    fprintf(stderr, "Speed: %fMB/s\n", (float)bytesReadTotal / (float)timeToReadData);
 }
 
 int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
