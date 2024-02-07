@@ -169,6 +169,8 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
     serverAddress.sin_addr.s_addr = inet_addr(serverAddressString);
     serverAddress.sin_port = htons(serverPort);
 
+    getTimeSinceLastCall();
+
     // Connect the socket to the server
     if (connect(socketfd, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0)
     {
@@ -176,8 +178,9 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
         return 1;
     }
 
+    int64_t timeTakenForConnect = getTimeSinceLastCall();
+
     printf("Connected to server, starting to send data\n");
-    getTimeSinceLastCall();
     dataGenerator(socketfd, totalSendAmount, chunkSize);
     printf("Data sent to server, Sending fin packet and waiting for server to close the connection\n");
 
@@ -206,6 +209,7 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
     }
 
     // Print time taken for transfer and transfer speed
+    printf("Time taken for connect: %ldus\n", timeTakenForConnect);
     printf("Time taken for transfer: %ldus\n", timeTakenForTransfer);
     printf("Transfer speed: %.2fMB/s\n", ((float)totalSendAmount / 1024 / 1024) / ((float)timeTakenForTransfer / 1000000));
 
