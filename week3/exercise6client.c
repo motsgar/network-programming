@@ -207,7 +207,7 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
 
     // Print time taken for transfer and transfer speed
     printf("Time taken for transfer: %ldus\n", timeTakenForTransfer);
-    printf("Transfer speed: %.2fMB/s\n", (float)totalSendAmount / ((float)timeTakenForTransfer));
+    printf("Transfer speed: %.2fMB/s\n", ((float)totalSendAmount / 1024 / 1024) / ((float)timeTakenForTransfer / 1000000));
 
     return 0;
 }

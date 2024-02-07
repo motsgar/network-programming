@@ -101,7 +101,7 @@ void dataEater(int input, int readAmount)
 
     // Print the time taken to eat the data and speed
     fprintf(stderr, "Time to read data: %ldus\n", timeToReadData);
-    fprintf(stderr, "Speed: %fMB/s\n", (float)bytesReadTotal / (float)timeToReadData);
+    fprintf(stderr, "Speed: %fMB/s\n", ((float)bytesReadTotal / 1024 / 1024) / ((float)timeToReadData / 1000000));
 }
 
 int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
