@@ -1,15 +1,46 @@
+#include <arpa/inet.h>
+#include <asm-generic/errno.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+// NOTE: I noticed after writing the code that the server should just print the data it receives and not send it back.
+// I guess I just made the slightly more complex version of the exercise.
 
 // I optionally added a signal handler for SIGPIPE.
 void sigpileHandler(__attribute__((unused)) int signum)
 {
-    char* message = "Reader recieved SIGPIPE from doubler indicating that it can't recieve data anymore.\n";
+    char* message = "Recieved SIGPIPE from connected client indicating that it can't recieve data anymore. Closing the connection.\n";
     write(STDERR_FILENO, message, strlen(message));
     exit(0);
+}
+
+void createSignalHandler()
+{
+    // Register additional signal handler.
+    struct sigaction action;
+    if (sigemptyset(&action.sa_mask) < 0)
+    {
+        perror("Failed to set signal mask");
+        exit(1);
+    }
+    action.sa_handler = sigpileHandler;
+    action.sa_flags = 0;
+
+    // Apply the action to SIGPIPE. If it fails, print an error and exit.
+    if (sigaction(SIGPIPE, &action, NULL) < 0)
+    {
+        perror("Failed to set SIGPIPE handler");
+        exit(1);
+    }
 }
 
 // Inclusively returns the number of characters until the next newline character.
@@ -43,29 +74,7 @@ ssize_t loopedWrite(int file, void* data, size_t length)
     return writeResult;
 }
 
-int reader(int input, int output)
-{
-    // Read from input and write to output until EOF is reached.
-    char data[100];
-    ssize_t charactersRead;
-    while ((charactersRead = read(input, data, sizeof(data))) > 0)
-    {
-        if (loopedWrite(output, data, charactersRead) < 0)
-        {
-            perror("Reader failed to write to output");
-            return -1;
-        }
-    }
-    // Check if EOF was actually reached or if an error occurred.
-    if (charactersRead < 0)
-    {
-        perror("Reader failed to read from input");
-        return -1;
-    }
-    return 0;
-}
-
-void dataEater(int input, int output)
+void lineDoubler(int input, int output)
 {
     // Keep reading max 100 characters to "data" until EOF is reached.
     // Data is read to "data + readBufferOffset" to allow contiunation of reading a line
@@ -78,7 +87,7 @@ void dataEater(int input, int output)
     {
         charactersRead += readBufferOffset;
 
-        // Keep writing lines to stdout until the read buffer is empty.
+        // Keep writing lines to output until the read buffer is empty.
         // If there is no newline in the read buffer, the start of the line is copied to the start of the buffer
         // and readBufferOffset is set to the number of characters copied for the next read to continue reading the line.
         size_t charactersWritten = 0;
@@ -89,6 +98,8 @@ void dataEater(int input, int output)
             ssize_t count = charactersUntilNewline(data + charactersWritten, charactersRead - charactersWritten);
             if (count < 0)
                 break;
+
+            sleep(1);
 
             if (!shouldSkipUntilNewline)
                 if (loopedWrite(output, data + charactersWritten, count) < 0 || loopedWrite(output, data + charactersWritten, count) < 0)
@@ -140,81 +151,99 @@ void dataEater(int input, int output)
 
 int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
 {
-    // Register additional signal handler.
-    struct sigaction action;
-    if (sigemptyset(&action.sa_mask) < 0)
-    {
-        perror("Failed to set signal mask");
-        return 1;
-    }
-    action.sa_handler = sigpileHandler;
-    action.sa_flags = 0;
+    createSignalHandler();
 
-    // Apply the action to SIGPIPE. If it fails, print an error and exit.
-    if (sigaction(SIGPIPE, &action, NULL) < 0)
-    {
-        perror("Failed to set SIGPIPE handler");
-        return 1;
-    }
+    int serverPort;
 
-    // Create a pipe for the reader and doubler to communicate.
-    int pipefd[2];
-    if (pipe(pipefd) < 0)
+    // Read the server port from the command line arguments.
+    if (argc != 2)
     {
-        perror("Failed to create pipe");
+        fprintf(stderr, "usage: %s <server port>\n", argv[0]);
+        exit(1);
+    }
+    serverPort = atoi(argv[1]);
+
+    // Create a socket
+    struct sockaddr_in serverAddress, clientAddress;
+    int listenSocketfd, clientSocketfd;
+    if ((listenSocketfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    {
+        perror("Failed to create socket");
         return 1;
     }
 
-    pid_t forkResult;
-    if ((forkResult = fork()) < 0)
+    // Set the port and address to bind the socket to
+    memset(&serverAddress, 0, sizeof(serverAddress));
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_port = htons(serverPort);
+    if (bind(listenSocketfd, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0)
     {
-        perror("Failed to fork");
+        perror("Failed to bind socket");
         return 1;
     }
-    // The child process is specifically chosen to be the doubler as it will notice if the reader exits
-    // and can then exit as well when EOF is reached. If the doubler exits, the reader will not notice
-    // until it tries to write to the pipe and receives SIGPIPE.
-    // Having the reader as the original process makes sure the terminal doesn't show the prompt before the child process exits.
-    else if (forkResult == 0)
+
+    if (listen(listenSocketfd, 5) < 0)
     {
-        // Close the write end of the pipe as doubler will read from the pipe and write to stdout.
-        if (close(pipefd[1]) < 0)
+        perror("Failed to listen on socket");
+        return 1;
+    }
+    fprintf(stderr, "Server listening on port %d\n", serverPort);
+
+    while (1)
+    {
+        int clientAddressSize = sizeof(clientAddress);
+        while ((clientSocketfd = accept(listenSocketfd, (struct sockaddr*)&clientAddress, (socklen_t*)&clientAddressSize)) < 0)
         {
-            perror("Failed to close write end of pipe");
-            return 1;
+            if (clientSocketfd < 0)
+            {
+                if (errno == EINTR || errno == ENETDOWN || errno == EPROTO || errno == ENOPROTOOPT || errno == EHOSTDOWN || errno == EHOSTUNREACH || errno == ENETUNREACH || errno == EOPNOTSUPP || errno == ENOENT)
+                    continue;
+                else
+                {
+                    perror("Failed to accept client connection");
+                    return 1;
+                }
+            }
         }
 
-        dataEater(pipefd[0], STDOUT_FILENO);
-        fprintf(stderr, "Line doubler received EOF from pipe\n");
+        fprintf(stderr, "Accepted client connection\n");
 
-        return 0;
+        pid_t child_pid;
+        if ((child_pid = fork()) < 0)
+        {
+            perror("Failed to fork for client connection");
+            return 1;
+        }
+        else if (child_pid == 0)
+        {
+            // Child process
+            close(listenSocketfd);
+
+            lineDoubler(clientSocketfd, clientSocketfd);
+            fprintf(stderr, "Received EOF from client (client disconnected)\n");
+            if (close(clientSocketfd) < 0)
+            {
+                perror("Failed to close client socket after client disconnected");
+                return 1;
+            }
+            exit(0);
+        }
+        else
+        {
+            // Parent process
+            if (close(clientSocketfd) < 0)
+            {
+                perror("Main process failed to close client socket");
+                return 1;
+            }
+        }
     }
 
-    // Close the read end of the pipe as reader will read stdin and write to the pipe.
-    if (close(pipefd[0]) < 0)
+    if (close(listenSocketfd) < 0)
     {
-        perror("Failed to close read end of pipe");
+        perror("Failed to close listen socket");
         return 1;
     }
 
-    if (reader(STDIN_FILENO, pipefd[1]) == 0)
-        fprintf(stderr, "Reader received EOF from stdin\n");
-
-    // Close the write end of the pipe to signal EOF to the doubler.
-    if (close(pipefd[1]) < 0)
-    {
-        perror("Failed to close write end of pipe");
-        return 1;
-    }
-
-    // I also decided to add a wait here to make sure the child process exits before the parent process
-    // so that the terminal doesn't show the prompt before the child process exits.
-    pid_t pid;
-    int stat;
-    pid = waitpid(-1, &stat, 0);
-    if (pid < 0)
-    {
-        perror("Failed to wait for child process");
-        return 1;
-    }
+    return 0;
 }
