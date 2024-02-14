@@ -229,7 +229,7 @@ int main(int argc, char **argv)
 
         for (i = 0; i < nloop; i++)
         {
-            // Idea explained in exercise 3 pdf.
+            // Idea explained in exercise 4 pdf.
             my_lock_wait1();
             my_lock_release3();
             my_lock_wait2();
@@ -257,7 +257,7 @@ int main(int argc, char **argv)
 
     for (i = 0; i < nloop; i++)
     {
-        // Idea explained in exercise 3 pdf.
+        // Idea explained in exercise 4 pdf.
         my_lock_wait2();
         my_lock_release1();
         my_lock_wait3();
