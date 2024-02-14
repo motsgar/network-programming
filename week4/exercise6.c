@@ -12,28 +12,64 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-void sigpileHandler(__attribute__((unused)) int signum)
+void sigpipeHandler(__attribute__((unused)) int signum)
 {
     char* message = "Recieved SIGPIPE from connected client indicating that it can't recieve data anymore. Closing the connection.\n";
     write(STDERR_FILENO, message, strlen(message));
     exit(0);
 }
 
-void createSignalHandler()
+void sigchldHandler(__attribute__((unused)) int signum)
 {
-    struct sigaction action;
-    if (sigemptyset(&action.sa_mask) < 0)
+    int saved_errno = errno;
+
+    pid_t pid;
+    int status;
+
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    {
+        if (WIFSIGNALED(status))
+        {
+            fprintf(stderr, "Child process %d suddenly exited with signal %d\n", pid, WTERMSIG(status));
+        }
+        else if (WIFEXITED(status))
+        {
+            if (WEXITSTATUS(status) != 0)
+            {
+                fprintf(stderr, "Child process %d exited with status %d\n", pid, WEXITSTATUS(status));
+            }
+        }
+        else
+        {
+            fprintf(stderr, "Child process %d exited with unknown status\n", pid);
+        }
+    }
+
+    errno = saved_errno;
+}
+
+void createSignalHandlers()
+{
+    struct sigaction signalAction;
+    if (sigemptyset(&signalAction.sa_mask) < 0)
     {
         perror("Failed to set signal mask");
         exit(1);
     }
-    action.sa_handler = sigpileHandler;
-    action.sa_flags = 0;
+    signalAction.sa_handler = sigpipeHandler;
+    signalAction.sa_flags = 0;
 
     // Apply the action to SIGPIPE. If it fails, print an error and exit.
-    if (sigaction(SIGPIPE, &action, NULL) < 0)
+    if (sigaction(SIGPIPE, &signalAction, NULL) < 0)
     {
         perror("Failed to set SIGPIPE handler");
+        exit(1);
+    }
+
+    signalAction.sa_handler = sigchldHandler;
+    if (sigaction(SIGCHLD, &signalAction, NULL) < 0)
+    {
+        perror("Failed to set SIGCHLD handler");
         exit(1);
     }
 }
@@ -74,7 +110,7 @@ void echoServer(int input, int output)
 
 int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
 {
-    createSignalHandler();
+    createSignalHandlers();
 
     int networkOrderPort;
 
@@ -126,6 +162,8 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
         perror("Failed to create socket");
         return 1;
     }
+
+    setsockopt(listenSocketfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
 
     // Set the port and address to bind the socket to
     memset(&serverAddress, 0, sizeof(serverAddress));
