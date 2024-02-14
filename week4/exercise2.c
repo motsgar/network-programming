@@ -79,7 +79,7 @@ ssize_t loopedRead(int file, void* data, size_t length)
     size_t charactersRead = 0;
     while ((
                readResult = read(file, data + charactersRead, length - charactersRead)
-           ) >= 0)
+           ) > 0)
     {
         charactersRead += readResult;
         if (charactersRead == length)
@@ -130,6 +130,10 @@ void echoProcess(int input, int output, int processTo, int processFrom)
                 {
                     perror("Failed to read from processFrom");
                     exit(1);
+                }
+                if (readResult == 0)
+                {
+                    return;
                 }
 
                 // Write the response to the output
@@ -204,30 +208,54 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
     createSignalHandler();
 
     char* serverAddressString;
+    int networkOrderPort;
+
+    // If argument is given, parse it and use it as the port to listen on. Otherwise use the echo service port.
+    if (argc == 3)
+    {
+        char* endPtr;
+        size_t argumentLength = strlen(argv[2]);
+        long parsedPort = strtol(argv[2], &endPtr, 10);
+        // Check that the entire argument was parsed. This is to avoid eg. "5abc" being parsed as 5.
+        // Also check that the parsed number is positive and at most 50.
+        if (endPtr != argv[2] + argumentLength)
+        {
+            fprintf(stderr, "Argument must be a number\n");
+            return 1;
+        }
+        else if (parsedPort < 1 || parsedPort > 65535)
+        {
+            fprintf(stderr, "Port must be a positive integer between 1 and 65535\n");
+            return 1;
+        }
+
+        networkOrderPort = htons(parsedPort);
+    }
+    else if (argc == 2)
+    {
+        // Get the echo service port from the system by name
+        struct servent* protocolStruct;
+        protocolStruct = getservbyname("echo", "tcp");
+        if (protocolStruct == NULL)
+        {
+            fprintf(stderr, "Failed to get echo service port\n");
+            return 1;
+        }
+
+        networkOrderPort = protocolStruct->s_port;
+    }
+    else
+    {
+        fprintf(stderr, "Usage: %s <server ip address> [port]\n", argv[0]);
+        return 1;
+    }
+
+    // Get ip from host name
+    serverAddressString = argv[1];
+    struct addrinfo hostIp = getHostIp(serverAddressString);
+
     int socketfd;
     struct sockaddr_in serverAddress;
-
-    // Read the server address and port from the command line arguments.
-    if (argc != 2)
-    {
-        fprintf(stderr, "Usage: %s <server ip address>\n", argv[0]);
-        return 1;
-    }
-    serverAddressString = argv[1];
-
-    // Get ip from host name and port from service name
-    struct addrinfo hostIp = getHostIp(serverAddressString);
-    struct servent* protocolStruct;
-    protocolStruct = getservbyname("echo", "tcp");
-    if (protocolStruct == NULL)
-    {
-        fprintf(stderr, "Failed to get echo service port\n");
-        return 1;
-    }
-
-    fprintf(stderr, "Ip address: %s\n", inet_ntoa(((struct sockaddr_in*)hostIp.ai_addr)->sin_addr));
-    fprintf(stderr, "Tcp echo service port: %d\n", ntohs(protocolStruct->s_port));
-
     // Create a stream socket for the connection
     if ((socketfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
     {
@@ -239,9 +267,10 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char* argv[])
     memset(&serverAddress, 0, sizeof(serverAddress));
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_addr.s_addr = ((struct sockaddr_in*)hostIp.ai_addr)->sin_addr.s_addr;
-    serverAddress.sin_port = protocolStruct->s_port;
+    serverAddress.sin_port = networkOrderPort;
 
-    fprintf(stderr, "Connecting to server...\n");
+    // print hostIp address we are connecting to
+    fprintf(stderr, "Connecting to server %s:%d...\n", inet_ntoa(((struct sockaddr_in*)hostIp.ai_addr)->sin_addr), ntohs(networkOrderPort));
 
     // Connect the socket to the server
     if (connect(socketfd, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0)
