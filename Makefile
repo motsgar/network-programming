@@ -14,7 +14,7 @@ clean:
 
 pack: $(addsuffix .tar.gz,$(WEEKS))
 
-%.tar.gz: %/*.c
+%.tar.gz: %/*.c %/*.c.nocomp
 	tar -czvf $@ $^
 
 .PHONY: all clean pack
