@@ -11,6 +11,7 @@ all: $(TARGETS)
 
 clean:
 	rm -f $(TARGETS)
+	rm week*.tar.gz
 
 pack: $(addsuffix .tar.gz,$(WEEKS))
 
